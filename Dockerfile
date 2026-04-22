@@ -4,7 +4,7 @@ FROM ubuntu:24.04
 ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
-ARG NODE_MAJOR=22
+ARG NODE_VERSION=22.11.0
 ARG PYTHON_VERSION=3.12
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -27,16 +27,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/batcat /usr/local/bin/bat \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Node.js via NodeSource (new GPG key approach for Ubuntu 24.04) ----
-RUN install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
-        > /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g npm@latest pnpm yarn \
-    && rm -rf /var/lib/apt/lists/*
+# ---- Node.js via nvm (shared install so root and dev user both get it) ----
+ARG NVM_VERSION=v0.40.1
+ENV NVM_DIR=/usr/local/nvm
+RUN mkdir -p "$NVM_DIR" \
+    && curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash \
+    && . "$NVM_DIR/nvm.sh" \
+    && nvm install "${NODE_VERSION}" \
+    && nvm alias default "${NODE_VERSION}" \
+    && nvm use default \
+    && npm install -g pnpm yarn \
+    && chmod -R a+rwX "$NVM_DIR" \
+    && printf '%s\n' \
+        'export NVM_DIR="/usr/local/nvm"' \
+        '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' \
+        '[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"' \
+        > /etc/profile.d/nvm.sh \
+    && node --version \
+    && npm --version
+ENV PATH=$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH
 
 # ---- uv (fast Python package manager) ----
 RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
