@@ -74,12 +74,21 @@ RUN mkdir -p /var/run/sshd /etc/ssh/sshd_config.d
 COPY sshd_dev.conf /etc/ssh/sshd_config.d/10-dev.conf
 
 # ---- User setup ----
-RUN groupadd --gid ${USER_GID} ${USERNAME} \
-    && useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/zsh ${USERNAME} \
-    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
-    && chmod 0440 /etc/sudoers.d/${USERNAME} \
-    && mkdir -p /home/${USERNAME}/.ssh /home/${USERNAME}/workspace \
-    && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
+# Ubuntu 24.04 ships with a default "ubuntu" user/group at UID/GID 1000.
+# Remove whatever currently owns our target UID/GID so we can claim them.
+RUN set -eux; \
+    if existing_user="$(getent passwd ${USER_UID} | cut -d: -f1)" && [ -n "$existing_user" ]; then \
+        userdel --remove "$existing_user" || true; \
+    fi; \
+    if existing_group="$(getent group ${USER_GID} | cut -d: -f1)" && [ -n "$existing_group" ]; then \
+        groupdel "$existing_group" || true; \
+    fi; \
+    groupadd --gid ${USER_GID} ${USERNAME}; \
+    useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/zsh ${USERNAME}; \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME}; \
+    chmod 0440 /etc/sudoers.d/${USERNAME}; \
+    mkdir -p /home/${USERNAME}/.ssh /home/${USERNAME}/workspace; \
+    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
 
 # The docker CLI talks to the dind daemon over TCP+TLS (DOCKER_HOST in the
 # environment). No local docker socket, no group membership needed.
