@@ -1,0 +1,109 @@
+# Dev container + Tailscale sidecar for Coolify.
+#
+# Deployment in Coolify:
+#   1. Project -> + New Resource -> Docker Compose Empty
+#   2. Paste this file
+#   3. Set the environment variables listed below in Coolify's UI:
+#        - TS_AUTHKEY              Tailscale auth key (tskey-auth-...); prefer ephemeral+reusable
+#        - TS_HOSTNAME             Hostname in your tailnet, e.g. "devbox"
+#        - SSH_AUTHORIZED_KEYS     Your SSH public keys (newline-separated)
+#   4. Build the image: either push this repo to git and let Coolify build it,
+#      or pre-build on the host and reference the tag in `image:` below.
+#
+# The dev container has NO published ports on the host. It's only reachable
+# through Tailscale, using TS_HOSTNAME as the tailnet name.
+
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: devbox-tailscale
+    hostname: ${TS_HOSTNAME:-devbox}
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_HOSTNAME: ${TS_HOSTNAME:-devbox}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "false"
+      # Accept DNS from the tailnet so you can resolve other tailscale hosts.
+      TS_EXTRA_ARGS: "--accept-dns=true --ssh=false"
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "tailscale", "status"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # Isolated Docker daemon. Privileged, but contained — runs in its own
+  # network/mount/pid namespace, does NOT touch the host's Docker or Coolify.
+  # The dev container talks to it via TCP over the shared netns (localhost:2376),
+  # authenticated with mutually-trusted TLS certs that dind generates on first boot.
+  dind:
+    image: docker:27-dind
+    container_name: devbox-dind
+    privileged: true
+    depends_on:
+      - tailscale
+    # Share tailscale's netns so "localhost:2376" works from the dev container,
+    # and so dind is NOT reachable from the host or the public internet.
+    network_mode: service:tailscale
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    volumes:
+      # Persist images, containers, volumes created inside dind across restarts.
+      - devbox-dind-data:/var/lib/docker
+      # TLS certs live here. `client` subdir is shared with the dev container.
+      - devbox-dind-certs:/certs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # If you'd rather pre-build and push, comment `build:` and set `image:`:
+    # image: ghcr.io/YOUR_USER/devbox:latest
+    container_name: devbox-dev
+    depends_on:
+      - tailscale
+      - dind
+    # Share the Tailscale container's network stack. SSH on port 22 will be
+    # reachable at <TS_HOSTNAME>.<tailnet>.ts.net over the tailnet only.
+    # Because dind is also in this netns, we reach its daemon at localhost:2376.
+    network_mode: service:tailscale
+    environment:
+      USERNAME: dev
+      SSH_AUTHORIZED_KEYS: ${SSH_AUTHORIZED_KEYS}
+      TZ: Europe/Berlin
+      # Point the docker CLI at the dind daemon with TLS.
+      DOCKER_HOST: tcp://localhost:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+    volumes:
+      # Your code lives on a persistent volume so rebuilds don't wipe it.
+      - devbox-workspace:/home/dev/workspace
+      # Persist the dev user's dotfiles, shell history, npm/pip caches, etc.
+      - devbox-home:/home/dev
+      # Persist SSH host keys so clients don't scream "host key changed" on rebuild.
+      - devbox-sshhostkeys:/etc/ssh
+      # Read-only client certs from dind. The dev user needs them to authenticate
+      # against the dind daemon. Mounted read-only — the dev container cannot
+      # modify dind's cert material.
+      - devbox-dind-certs:/certs:ro
+    restart: unless-stopped
+
+volumes:
+  tailscale-state:
+  devbox-workspace:
+  devbox-home:
+  devbox-sshhostkeys:
+  devbox-dind-data:
+  devbox-dind-certs:
