@@ -4,7 +4,7 @@ FROM ubuntu:24.04
 ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
-ARG NODE_MAJOR=22
+ARG NODE_VERSION=22.11.0
 ARG PYTHON_VERSION=3.12
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -27,16 +27,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/batcat /usr/local/bin/bat \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Node.js via NodeSource (new GPG key approach for Ubuntu 24.04) ----
-RUN install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
-        > /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g npm@latest pnpm yarn \
-    && rm -rf /var/lib/apt/lists/*
+# ---- Node.js (official nodejs.org binaries; avoids flaky NodeSource apt repo) ----
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "${arch}" in \
+        amd64) node_arch="x64" ;; \
+        arm64) node_arch="arm64" ;; \
+        armhf) node_arch="armv7l" ;; \
+        *) echo "Unsupported architecture: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
+        -o /tmp/node.tar.xz; \
+    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
+        --exclude='CHANGELOG.md' --exclude='LICENSE' --exclude='README.md'; \
+    rm /tmp/node.tar.xz; \
+    npm install -g pnpm yarn; \
+    node --version; \
+    npm --version
 
 # ---- uv (fast Python package manager) ----
 RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
