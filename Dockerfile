@@ -27,23 +27,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/batcat /usr/local/bin/bat \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Node.js (official nodejs.org binaries; avoids flaky NodeSource apt repo) ----
-RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; \
-    case "${arch}" in \
-        amd64) node_arch="x64" ;; \
-        arm64) node_arch="arm64" ;; \
-        armhf) node_arch="armv7l" ;; \
-        *) echo "Unsupported architecture: ${arch}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
-        -o /tmp/node.tar.xz; \
-    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
-        --exclude='CHANGELOG.md' --exclude='LICENSE' --exclude='README.md'; \
-    rm /tmp/node.tar.xz; \
-    npm install -g pnpm yarn; \
-    node --version; \
-    npm --version
+# ---- Node.js via nvm (shared install so root and dev user both get it) ----
+ARG NVM_VERSION=v0.40.1
+ENV NVM_DIR=/usr/local/nvm
+RUN mkdir -p "$NVM_DIR" \
+    && curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash \
+    && . "$NVM_DIR/nvm.sh" \
+    && nvm install "${NODE_VERSION}" \
+    && nvm alias default "${NODE_VERSION}" \
+    && nvm use default \
+    && npm install -g pnpm yarn \
+    && chmod -R a+rwX "$NVM_DIR" \
+    && printf '%s\n' \
+        'export NVM_DIR="/usr/local/nvm"' \
+        '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' \
+        '[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"' \
+        > /etc/profile.d/nvm.sh \
+    && node --version \
+    && npm --version
+ENV PATH=$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH
 
 # ---- uv (fast Python package manager) ----
 RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
