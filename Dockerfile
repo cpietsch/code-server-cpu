@@ -38,11 +38,22 @@ RUN mkdir -p "$NVM_DIR" \
     && nvm use default \
     && npm install -g pnpm yarn \
     && chmod -R a+rwX "$NVM_DIR" \
+    # Symlinks so node/npm/npx/pnpm/yarn are on PATH in any SSH session
+    && ln -sf "$NVM_DIR/versions/node/v${NODE_VERSION}/bin/node" /usr/local/bin/node \
+    && ln -sf "$NVM_DIR/versions/node/v${NODE_VERSION}/bin/npm"  /usr/local/bin/npm \
+    && ln -sf "$NVM_DIR/versions/node/v${NODE_VERSION}/bin/npx"  /usr/local/bin/npx \
+    && ln -sf "$NVM_DIR/versions/node/v${NODE_VERSION}/bin/pnpm" /usr/local/bin/pnpm \
+    && ln -sf "$NVM_DIR/versions/node/v${NODE_VERSION}/bin/yarn" /usr/local/bin/yarn \
+    # /etc/profile.d/ is bash-only; use zshenv for zsh login sessions
     && printf '%s\n' \
         'export NVM_DIR="/usr/local/nvm"' \
         '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' \
-        '[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"' \
         > /etc/profile.d/nvm.sh \
+    && mkdir -p /etc/zsh \
+    && printf '%s\n' \
+        'export NVM_DIR="/usr/local/nvm"' \
+        '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' \
+        >> /etc/zsh/zshenv \
     && node --version \
     && npm --version
 ENV PATH=$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH
