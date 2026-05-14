@@ -123,8 +123,8 @@ The dev container itself is lean (~1–2 GB RAM at idle, CPU only under load). O
 
 ## Updates
 
-- **Update Node/Python/tools**: trigger a redeploy in Coolify (rebuild image). Workspace and home volumes are preserved.
-- **Update Tailscale**: redeploy only the `tailscale` service; the dev container stays live.
+- **Update Node/Python/tools**: trigger a redeploy in Coolify (rebuild image). Workspace and home volumes are preserved. Bumping `NODE_VERSION` (or any other build-time `ARG`) requires a full rebuild — Docker's layer cache won't pick up the change without it.
+- **Update Tailscale / DinD**: image versions are pinned in `docker-compose.yml`. Bump them deliberately after reading the upstream changelog, then redeploy.
 - **Update Claude Code**: `npm update -g @anthropic-ai/claude-code` inside an SSH session.
 
 ## Troubleshooting

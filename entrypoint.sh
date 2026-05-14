@@ -6,20 +6,20 @@ USERNAME="${USERNAME:-dev}"
 # --- 1. Wait for dind to finish generating client certs ---
 # dind writes /certs/client/{ca,cert,key}.pem on first boot. If we don't wait,
 # the dev user lands in a shell where `docker ps` fails with a TLS error.
+# We fail hard if certs never appear: a container that boots into a broken
+# `docker` is worse than a clear restart loop the operator can see in logs.
+CERT_WAIT_TIMEOUT="${CERT_WAIT_TIMEOUT:-60}"
 if [ -n "${DOCKER_CERT_PATH:-}" ]; then
-    echo "entrypoint: waiting for dind client certs at ${DOCKER_CERT_PATH}..."
-    for i in $(seq 1 60); do
-        if [ -f "${DOCKER_CERT_PATH}/ca.pem" ] \
-           && [ -f "${DOCKER_CERT_PATH}/cert.pem" ] \
-           && [ -f "${DOCKER_CERT_PATH}/key.pem" ]; then
-            echo "entrypoint: dind certs present."
-            break
-        fi
-        sleep 1
-    done
-    if [ ! -f "${DOCKER_CERT_PATH}/ca.pem" ]; then
-        echo "entrypoint: WARNING — dind certs never appeared. \`docker\` inside the container will fail until dind is healthy." >&2
+    echo "entrypoint: waiting up to ${CERT_WAIT_TIMEOUT}s for dind client certs at ${DOCKER_CERT_PATH}..."
+    if ! timeout "${CERT_WAIT_TIMEOUT}" sh -c '
+        until [ -f "$1/ca.pem" ] && [ -f "$1/cert.pem" ] && [ -f "$1/key.pem" ]; do
+            sleep 1
+        done
+    ' _ "${DOCKER_CERT_PATH}"; then
+        echo "entrypoint: ERROR — dind certs never appeared at ${DOCKER_CERT_PATH}. Aborting so the orchestrator restarts us." >&2
+        exit 1
     fi
+    echo "entrypoint: dind certs present."
 fi
 
 # --- 2. Seed authorized_keys from the SSH_AUTHORIZED_KEYS env var ---

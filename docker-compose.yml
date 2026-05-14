@@ -15,7 +15,9 @@
 
 services:
   tailscale:
-    image: tailscale/tailscale:latest
+    # Pinned to a specific version so a redeploy can't silently pull a new
+    # major. Bump deliberately after reading the changelog.
+    image: tailscale/tailscale:v1.78.1
     container_name: devbox-tailscale
     hostname: ${TS_HOSTNAME:-devbox}
     environment:
@@ -43,11 +45,12 @@ services:
   # The dev container talks to it via TCP over the shared netns (localhost:2376),
   # authenticated with mutually-trusted TLS certs that dind generates on first boot.
   dind:
-    image: docker:27-dind
+    image: docker:27.3.1-dind
     container_name: devbox-dind
     privileged: true
     depends_on:
-      - tailscale
+      tailscale:
+        condition: service_healthy
     # Share tailscale's netns so "localhost:2376" works from the dev container,
     # and so dind is NOT reachable from the host or the public internet.
     network_mode: service:tailscale
@@ -73,8 +76,10 @@ services:
     # image: ghcr.io/YOUR_USER/devbox:latest
     container_name: devbox-dev
     depends_on:
-      - tailscale
-      - dind
+      tailscale:
+        condition: service_healthy
+      dind:
+        condition: service_healthy
     # Share the Tailscale container's network stack. SSH on port 22 will be
     # reachable at <TS_HOSTNAME>.<tailnet>.ts.net over the tailnet only.
     # Because dind is also in this netns, we reach its daemon at localhost:2376.
@@ -82,7 +87,7 @@ services:
     environment:
       USERNAME: dev
       SSH_AUTHORIZED_KEYS: ${SSH_AUTHORIZED_KEYS}
-      TZ: Europe/Berlin
+      TZ: ${TZ:-Europe/Berlin}
       # Point the docker CLI at the dind daemon with TLS.
       DOCKER_HOST: tcp://localhost:2376
       DOCKER_TLS_VERIFY: "1"
@@ -99,6 +104,14 @@ services:
       # modify dind's cert material.
       - devbox-dind-certs:/certs:ro
     restart: unless-stopped
+    healthcheck:
+      # sshd answers the protocol banner on port 22; a successful TCP open is
+      # enough signal that the daemon is alive.
+      test: ["CMD-SHELL", "ss -ltn 'sport = :22' | grep -q LISTEN"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   tailscale-state:
