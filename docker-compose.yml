@@ -4,7 +4,7 @@
 #   1. Project -> + New Resource -> Docker Compose Empty
 #   2. Paste this file
 #   3. Set the environment variables listed below in Coolify's UI:
-#        - TS_AUTHKEY              Tailscale auth key (tskey-auth-...); prefer ephemeral+reusable
+#        - TS_AUTHKEY              Tailscale auth key (tskey-auth-...); reusable, NOT ephemeral
 #        - TS_HOSTNAME             Hostname in your tailnet, e.g. "devbox"
 #        - SSH_AUTHORIZED_KEYS     Your SSH public keys (newline-separated)
 #   4. Build the image: either push this repo to git and let Coolify build it,
@@ -43,7 +43,7 @@ services:
   # The dev container talks to it via TCP over the shared netns (localhost:2376),
   # authenticated with mutually-trusted TLS certs that dind generates on first boot.
   dind:
-    image: docker:27-dind
+    image: docker:29-dind
     container_name: devbox-dind
     privileged: true
     depends_on:
@@ -98,6 +98,16 @@ services:
       # against the dind daemon. Mounted read-only — the dev container cannot
       # modify dind's cert material.
       - devbox-dind-certs:/certs:ro
+    # Coolify aggregates every service. A service with no healthcheck stays
+    # "unknown" and the whole stack never becomes healthy. Exec form only —
+    # CMD-SHELL with redirects is rewritten badly by Coolify. start_period
+    # covers the entrypoint wait for dind certs (up to 60s) before sshd runs.
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "sshd"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     restart: unless-stopped
 
 volumes:

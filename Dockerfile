@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.6
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
-ARG NODE_VERSION=22.11.0
-ARG PYTHON_VERSION=3.12
+ARG NODE_VERSION=26.13.0
+ARG PYTHON_VERSION=3.14
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl wget gnupg lsb-release \
         git git-lfs openssh-server sudo locales tzdata \
         build-essential pkg-config \
-        zsh tmux vim nano htop jq ripgrep fd-find bat unzip zip \
+        zsh tmux vim nano htop procps jq ripgrep fd-find bat unzip zip \
         iputils-ping dnsutils net-tools \
         python${PYTHON_VERSION} python${PYTHON_VERSION}-venv python${PYTHON_VERSION}-dev \
         python3-pip python3-setuptools pipx \
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- Node.js via nvm (shared install so root and dev user both get it) ----
-ARG NVM_VERSION=v0.40.1
+ARG NVM_VERSION=v0.40.8
 ENV NVM_DIR=/usr/local/nvm
 RUN mkdir -p "$NVM_DIR" \
     && curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash \
@@ -61,7 +61,7 @@ ENV PATH=$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH
 # ---- uv (fast Python package manager) ----
 RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
 
-# ---- Docker CLI only (no daemon) to talk to the host socket ----
+# ---- Docker CLI only (no daemon). Talks to the DinD sidecar over TCP+TLS. ----
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
@@ -85,7 +85,7 @@ RUN mkdir -p /var/run/sshd /etc/ssh/sshd_config.d
 COPY sshd_dev.conf /etc/ssh/sshd_config.d/10-dev.conf
 
 # ---- User setup ----
-# Ubuntu 24.04 ships with a default "ubuntu" user/group at UID/GID 1000.
+# Ubuntu 26.04 ships with a default "ubuntu" user/group at UID/GID 1000.
 # Remove whatever currently owns our target UID/GID so we can claim them.
 RUN set -eux; \
     if existing_user="$(getent passwd ${USER_UID} | cut -d: -f1)" && [ -n "$existing_user" ]; then \
@@ -108,5 +108,11 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 22
+
+# Exec form, no shell. Coolify's compose parser and CMD healthcheck
+# whitelist both accept this. sshd is PID 1 after the entrypoint execs.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=5 \
+  CMD ["pgrep", "-x", "sshd"]
+
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/usr/sbin/sshd", "-D", "-e"]
