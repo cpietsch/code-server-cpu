@@ -130,6 +130,7 @@ The dev container itself is lean (~1–2 GB RAM at idle, CPU only under load). O
 ## Troubleshooting
 
 - **SSH not working**: check the Coolify logs for the `dev` service to confirm `sshd` is running. Check the `tailscale` service to confirm it authenticated (`tailscale status`).
+- **Coolify stays on "unknown"**: every service needs a healthcheck or Coolify will not mark the stack healthy. `dev` checks `pgrep -x sshd`. It can stay `starting` for up to 90s while the entrypoint waits for DinD certs.
 - **`docker: Cannot connect to the Docker daemon`**: DinD is still starting up or the certs have not been written yet. Check `docker compose logs dind` in Coolify. After a reboot it takes a few seconds for the daemon to become ready.
 - **`docker: tls: failed to verify certificate`**: The cert volume (`devbox-dind-certs`) was manually cleared or is inconsistent between the dind and dev containers. Restart both containers so dind generates fresh certs that the dev container can pick up.
 - **Host key warning on laptop after rebuild**: should not happen with the host-key volume. If it does: `ssh-keygen -R devbox` on the laptop, then reconnect once.
